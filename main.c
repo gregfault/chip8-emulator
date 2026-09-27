@@ -30,6 +30,8 @@ int main(int argc, char *argv[]) {
         struct chip8 chip = {0};
         load_rom(&chip, argv[1]);
 
+
+
         for (int j=0; j<30; j++) {
             uint8_t top = chip.memory[chip.pc];
             uint8_t bottom = chip.memory[chip.pc + 1];
@@ -46,6 +48,25 @@ int main(int argc, char *argv[]) {
 
                 case 0x6: {
                     chip.V[X] = NN;
+                    break;
+                }
+
+                case 0x0: {
+                    //multiple instructions for type 0 hence if statements
+                    if (instruction == 0x00E0) { //clearing screen
+                        for (int i = 0; i<32; i++) {
+                            for (int j = 0; j<64; j++) {
+                                chip.screen[i][j] = 0;
+                            }
+                        }
+                        break;
+                    }
+                    if ( instruction == 0x00EE) { //return, pop the return address from the stack
+                        chip.sp--;
+                        chip.pc = chip.stack[chip.sp];
+                        break;
+                    }
+                    printf("invalid instruction: %04X \n", instruction);
                     break;
                 }
 
@@ -84,6 +105,13 @@ int main(int argc, char *argv[]) {
                             }
                         }
                     }
+                    break;
+                }
+
+                case 0x2: {
+                    chip.stack[chip.sp] = chip.pc;
+                    chip.sp++;
+                    chip.pc = NNN;
                     break;
                 }
 
