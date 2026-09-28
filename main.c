@@ -85,7 +85,6 @@ int main(int argc, char *argv[]) {
                     break;
                 }
 
-
                 case 0xD: { //case for painting the screen
                     uint8_t x = chip.V[X] % 64;
                     uint8_t y = chip.V[Y] % 32;
@@ -114,6 +113,106 @@ int main(int argc, char *argv[]) {
                     chip.pc = NNN;
                     break;
                 }
+
+                //cases 0x3, 0x4, 0x5, 0x9 are basically replacement for if statements similar to conditional jumps in x86 putting it simply
+                //skipping by 2 so one instance of instruction is skipped if the criteria is met
+                case 0x3: {
+                    if (chip.V[X] == NN) {
+                        chip.pc += 2;
+                    }
+                    break;
+                }
+
+                case 0x4: {
+                    if (chip.V[X] != NN) {
+                        chip.pc += 2;
+                    }
+                    break;
+                }
+
+                case 0x5 : {
+                    if (chip.V[X] == chip.V[Y]) {
+                        chip.pc += 2;
+                    }
+                    break;
+                }
+
+                case 0x9: {
+                    if (chip.V[X] != chip.V[Y]) {
+                        chip.pc += 2;
+                    }
+                    break;
+                }
+
+                case 0x8: { //calc
+                    switch (N) {
+                        case 0x0: { //copy
+                            chip.V[X] = chip.V[Y];
+                            break;
+                        }
+                        case 0x1: { //or
+                            chip.V[X] |= chip.V[Y];
+                            break;
+                        }
+                        case 0x2: { //and
+                            chip.V[X] &= chip.V[Y];
+                            break;
+                        }
+                        case 0x3: { //xor
+                            chip.V[X] ^= chip.V[Y];
+                            break;
+                        }
+                        //cases below can set the VF flag to 1 if there is overflow
+                        case 0x4: { //add
+                            uint16_t sum = chip.V[X] + chip.V[Y];
+                            chip.V[X] = sum & 0xFF;
+                            sum = sum >> 8;
+                            if (sum == 1) {
+                                chip.V[0xF] = 1;
+                            }else chip.V[0xF] = 0;
+                            break;
+                        }
+                        case 0x5: { //subtract
+                            uint8_t x_copy = chip.V[X];
+                            chip.V[X] -= chip.V[Y];
+                            if (x_copy >= chip.V[Y]) {
+                                chip.V[0xF] = 1;
+                            }else chip.V[0xF] = 0;
+                            break;
+                        }
+                        case 0x6: { //move by one bit
+                            uint8_t old_y = chip.V[Y];
+                            chip.V[X] = chip.V[Y] >> 1;
+                            chip.V[0xF] = old_y & 0x1;
+                            break;
+                        }
+                        case 0x7: {
+                            uint8_t flag;
+                            if (chip.V[Y] >= chip.V[X]) {
+                                flag = 1;
+                            }else flag = 0;
+                            chip.V[X] = chip.V[Y] - chip.V[X];
+                            chip.V[0xF] = flag;
+                            break;
+                        }
+                        case 0xE: { //move by one bit left
+                            uint8_t flag = chip.V[Y] >> 7;
+                            chip.V[X] = chip.V[Y] << 1;
+                            if (flag == 1) {
+                                chip.V[0xF] = 1;
+                            }else chip.V[0xF] = 0;
+                            break;
+                        }
+
+
+                        default: {
+                            printf("invalid instruction: %04X \n", instruction);
+                            break;
+                        }
+                    }
+                    break;
+                }
+
 
                 default: {
                     printf("invalid instruction: %04X \n", instruction);
