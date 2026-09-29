@@ -45,7 +45,6 @@ int main(int argc, char *argv[]) {
             uint16_t NNN = instruction & 0xFFF;
 
             switch (TYPE) {
-
                 case 0x6: {
                     chip.V[X] = NN;
                     break;
@@ -114,8 +113,8 @@ int main(int argc, char *argv[]) {
                     break;
                 }
 
-                //cases 0x3, 0x4, 0x5, 0x9 are basically replacement for if statements similar to conditional jumps in x86 putting it simply
-                //skipping by 2 so one instance of instruction is skipped if the criteria is met
+                    //cases 0x3, 0x4, 0x5, 0x9 are basically replacement for if statements similar to conditional jumps in x86 putting it simply
+                    //skipping by 2 so one instance of instruction is skipped if the criteria is met
                 case 0x3: {
                     if (chip.V[X] == NN) {
                         chip.pc += 2;
@@ -144,7 +143,8 @@ int main(int argc, char *argv[]) {
                     break;
                 }
 
-                case 0x8: { //calc
+                case 0x8: {
+                    //calc
                     switch (N) {
                         case 0x0: { //copy
                             chip.V[X] = chip.V[Y];
@@ -203,6 +203,42 @@ int main(int argc, char *argv[]) {
                             }else chip.V[0xF] = 0;
                             break;
                         }
+                        default: {
+                            printf("invalid instruction: %04X \n", instruction);
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+
+                case 0xF: {
+                    switch (NN) {
+                        case 0x1E: {
+                            chip.I += chip.V[X];
+                            break;
+                        }
+                        case 0x33: {
+                            uint8_t VX_copy = chip.V[X];
+                            chip.memory[chip.I] = VX_copy / 100;
+                            chip.memory[chip.I+1] = (VX_copy / 10) % 10;
+                            chip.memory[chip.I+2] = VX_copy % 10;
+                            break;
+                        }
+                        case 0x55: {
+                            for (int i = 0; i<=X; i++) {
+                                chip.memory[chip.I + i] = chip.V[i];
+                            }
+                            chip.I = chip.I + X + 1;
+                            break;
+                        }
+                        case 0x65: {
+                            for (int i = 0; i<=X; i++) {
+                                chip.V[i] = chip.memory[chip.I + i];
+                            }
+                            chip.I = chip.I + X + 1;
+                            break;
+                        }
 
 
                         default: {
@@ -214,12 +250,15 @@ int main(int argc, char *argv[]) {
                 }
 
 
+
                 default: {
                     printf("invalid instruction: %04X \n", instruction);
                     break;
                 }
             }
         }
+
+
 
         for (int i =0; i<32;i++) {
             for (int j=0; j<64; j++) {
