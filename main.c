@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
 
 
 
-        for (int j=0; j<30; j++) {
+        for (int j=0; j<100000; j++) {
             uint8_t top = chip.memory[chip.pc];
             uint8_t bottom = chip.memory[chip.pc + 1];
             uint16_t instruction = (top << 8) | bottom; // merging two bytes into one instruction top+bottom
