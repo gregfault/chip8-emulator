@@ -4,7 +4,14 @@
 #include <time.h>
 #include <SDL.h>
 #define SCALE 20 //scale used for sdl2
-#define INSTRUCTIONS_PER_FRAME 20 //basic amount of instructions per frame for chip8
+#define INSTRUCTIONS_PER_FRAME 11 //basic amount of instructions per frame for chip8
+
+//sound settings: a 440 Hz square wave (the note A), played while the sound timer is above 0
+#define SAMPLE_RATE 44100                         //samples per second sent to the speaker
+#define BEEP_FREQUENCY 440                        //pitch of the beep in Hz
+#define VOLUME 3000                               //amplitude of the wave (max for int16_t is 32767)
+#define SAMPLES_PER_FRAME (SAMPLE_RATE / 60)      //735 samples = 1/60 s of sound per frame
+#define MAX_QUEUED_FRAMES 2                       //never queue more than 2 frames of sound ahead
 
 struct chip8 {
     uint8_t memory[4096];
@@ -65,8 +72,6 @@ int load_rom(struct chip8 *chip, const char *path) {
     return -1;
 }
 
-
-
 void load_font(struct chip8 *chip) {
     //loading the font into the chips memory starting from 0x050
     for (int i = 0; i < 80; i++) {
@@ -74,6 +79,7 @@ void load_font(struct chip8 *chip) {
     }
 }
 
+//processes every waiting SDL event; returns 0 if the user closed the window, 1 otherwise
 int handle_events(struct chip8 *chip) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -97,6 +103,7 @@ int handle_events(struct chip8 *chip) {
     return 1;
 }
 
+//executes one CHIP-8 instruction: fetch, decode, execute
 void execute_instruction(struct chip8 *chip) {
     uint8_t top = chip->memory[chip->pc];
     uint8_t bottom = chip->memory[chip->pc + 1];
@@ -109,7 +116,7 @@ void execute_instruction(struct chip8 *chip) {
     uint8_t NN = instruction & 0xFF;
     uint16_t NNN = instruction & 0xFFF;
 
-        switch (TYPE) {
+    switch (TYPE) {
         case 0x6: {
             chip->V[X] = NN;
             break;
@@ -394,7 +401,38 @@ void execute_instruction(struct chip8 *chip) {
     }
 }
 
-void draw_screen(SDL_Renderer *renderer,const struct chip8 *chip) {
+//both timers count down at 60 Hz, so this is called once per frame
+void update_timers(struct chip8 *chip) {
+    if (chip->delay_timer > 0) chip->delay_timer--;
+    if (chip->sound_timer > 0) chip->sound_timer--;
+}
+
+//plays the beep: while the sound timer is above 0, adds 1/60 s of square wave to SDL's audio queue each frame
+void update_sound(SDL_AudioDeviceID audio, const struct chip8 *chip) {
+    //keeps counting across calls, so the wave continues smoothly from frame to frame
+    static unsigned long sample_index = 0;
+
+    if (audio == 0) return; //no audio device, emulator runs silently
+
+    if (chip->sound_timer == 0) {
+        SDL_ClearQueuedAudio(audio); //stop the beep right away instead of finishing what is queued
+        return;
+    }
+
+    //frames * samples per frame * bytes per sample
+    if (SDL_GetQueuedAudioSize(audio) > MAX_QUEUED_FRAMES * SAMPLES_PER_FRAME * sizeof(int16_t)) return;
+
+    int16_t buffer[SAMPLES_PER_FRAME];
+    const unsigned long half_period = SAMPLE_RATE / BEEP_FREQUENCY / 2; //50 samples up, 50 samples down
+    for (int i = 0; i < SAMPLES_PER_FRAME; i++) {
+        buffer[i] = ((sample_index / half_period) % 2 == 0) ? VOLUME : -VOLUME;
+        sample_index++;
+    }
+    SDL_QueueAudio(audio, buffer, sizeof(buffer));
+}
+
+
+void draw_screen(SDL_Renderer *renderer, const struct chip8 *chip) {
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); //black
     SDL_RenderClear(renderer); // fill everything with black
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); //white
@@ -411,11 +449,6 @@ void draw_screen(SDL_Renderer *renderer,const struct chip8 *chip) {
     SDL_RenderPresent(renderer); //displays the finished frame
 }
 
-void update_timers(struct chip8 *chip) {
-    if (chip->delay_timer > 0) chip->delay_timer--;
-    if (chip->sound_timer > 0) chip->sound_timer--;
-}
-
 int main(int argc, char *argv[]) {
     srand(time(NULL));
     if (argc >= 2) {
@@ -426,11 +459,12 @@ int main(int argc, char *argv[]) {
 
         //loading the rom
         if (load_rom(&chip, argv[1]) != 0) {
-            printf("ROM error\n");
+            printf("could not open ROM: %s\n", argv[1]);
             return 1;
         }
+
         //SDL2 SETUP
-        if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
             printf("SDL_Init error: %s\n", SDL_GetError());
             return 1;
         }
@@ -442,6 +476,17 @@ int main(int argc, char *argv[]) {
         SDL_Renderer *renderer = SDL_CreateRenderer(window, -1,
                                                     SDL_RENDERER_ACCELERATED);
 
+        //audio: 16-bit mono at 44100 Hz; callback = NULL means samples are pushed with SDL_QueueAudio
+        SDL_AudioSpec spec = {0};
+        spec.freq = SAMPLE_RATE;
+        spec.format = AUDIO_S16SYS;
+        spec.channels = 1;
+        spec.samples = 512;
+        spec.callback = NULL;
+        SDL_AudioDeviceID audio = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
+        if (audio == 0) printf("audio error: %s (running without sound)\n", SDL_GetError());
+        SDL_PauseAudioDevice(audio, 0); //audio devices start paused, 0 = start playing
+
         //main loop: one iteration = one frame (1/60 s)
         while (handle_events(&chip)) {
             Uint32 frame_start_time = SDL_GetTicks();
@@ -450,18 +495,20 @@ int main(int argc, char *argv[]) {
                 execute_instruction(&chip);
             }
             update_timers(&chip);
+            update_sound(audio, &chip);
             draw_screen(renderer, &chip);
 
             Uint32 elapsed = SDL_GetTicks() - frame_start_time;
             if (elapsed < 16) SDL_Delay(16 - elapsed);
         }
 
+        SDL_CloseAudioDevice(audio);
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
 
         return 0;
     }
-    printf("file address not given \n");
+    printf("usage: chip8 <rom>\n");
     return 1;
 }
